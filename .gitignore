@@ -1,0 +1,3 @@
+# Your own secrets and ESPHome's build folder stay local.
+secrets.yaml
+.esphome/

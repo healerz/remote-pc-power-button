@@ -1,0 +1,284 @@
+# remote-pc-power-button v2.0.1: pc-button-relay. See the README for the secrets and the MACs to fill in.
+
+# Board: Arduino Nano ESP32, inside the PC; remote I/O of pc-button-desk
+# Actuator: relay on PWR_SW header | Sensor: PSU 5V divider
+# Powered from USB header 5VSB, alive while the PC is off; do not move to a switched rail.
+#
+# WiFi is off by default so the radio never leaves the AP's channel to scan.
+# Turn it on via the desk unit's "Satellite WiFi" switch when OTA is needed.
+# Rescue: 10 consecutive failed reports (~5 min) while WiFi is off → enable WiFi and reboot.
+# ESP-NOW with WiFi off uses the channel of the last WiFi session, saved on
+# connect. Until a channel has been saved (a new board), it always starts with
+# WiFi on: without a known channel ESP-NOW cannot work, so there is no guessing.
+# A router channel change heals itself: the rescue brings WiFi back on the new
+# channel, and after 3 reports delivered on WiFi the unit switches WiFi off
+# again and carries the saved channel over to ESP-NOW. Only a rescue returns
+# by itself; WiFi switched on by wifi_on stays on until wifi_off, unless it has
+# not connected 5 min after boot: then the unit returns to WiFi off.
+#
+# No common/wifi.yaml: its fallback AP and captive portal would contradict
+# WiFi being off by default, so this unit keeps its own wifi block.
+
+substitutions:
+  name: pc-button-relay
+  project: remote-pc-power-button
+  pc_button_desk_mac: "02:00:00:00:00:21"  # MAC of that unit, from its boot log (see the README)
+
+esphome:
+  project:
+    name: ${project}.${name}
+    version: v2.0.1
+  name: ${name}
+  friendly_name: PC Button Relay
+  on_boot:
+    - priority: 250                 # after logger and core components
+      then:
+        - lambda: |-
+            ESP_LOGI("sat", "boot: boot_wifi_enabled=%s",
+                     id(boot_wifi_enabled) ? "true" : "false");
+        - if:
+            condition:
+              lambda: 'return id(boot_wifi_enabled) || id(espnow_channel) == 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("sat", "boot: enabling wifi%s",
+                           id(espnow_channel) == 0 ? " (no espnow channel saved yet)" : "");
+              - wifi.enable:
+              - script.execute: wifi_connect_watchdog
+            else:
+              - espnow.set_channel: !lambda 'return id(espnow_channel);'
+              - lambda: 'ESP_LOGI("sat", "boot: wifi stays off, channel set to %u", id(espnow_channel));'
+    - priority: -100                # after everything is up
+      then:
+        - script.execute: report_wifi_state
+
+esp32:
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+globals:
+  - id: boot_wifi_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'true'           # fresh flash comes up reachable
+
+  - id: espnow_channel              # channel of the last WiFi session
+    type: uint8_t
+    restore_value: true
+    initial_value: '0'              # 0: none saved yet, so WiFi starts on
+
+  - id: wifi_by_rescue              # WiFi is on because of a rescue, not wifi_on
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+
+  - id: rescue_reports              # reports delivered on WiFi since a rescue
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+  - id: rescue_return               # reports it takes to switch WiFi off again
+    type: int
+    restore_value: false
+    initial_value: '3'
+
+  - id: send_failures               # consecutive failed reports
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+  - id: fail_threshold              # 10 reports at 30s = ~5 min
+    type: int
+    restore_value: false
+    initial_value: '10'
+
+api:                                # kept for OTA/logs only — no entities
+  encryption:
+    key: !secret pc_button_relay_api_key
+  reboot_timeout: 0s                # relay unit runs HA-less by design
+
+
+ota:
+  - platform: esphome
+    encryption:                     # inherits the api key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  enable_on_boot: false             # started only by the on_boot automation
+  on_connect:                       # remember the AP's channel for ESP-NOW
+    - lambda: |-
+        int32_t channel = wifi::global_wifi_component->get_wifi_channel();
+        if (channel < 1 || channel > 13 || channel == id(espnow_channel)) return;
+        ESP_LOGI("sat", "wifi channel %d saved for espnow (was %u)", channel, id(espnow_channel));
+        id(espnow_channel) = channel;
+
+button:
+  - platform: restart
+    id: reboot_btn
+    internal: true
+
+# ── ESP-NOW link to pc-button-desk ─────────────────────────────
+# ← down / held / up / wifi_on / wifi_off
+# → on / off                             (PC power)
+# → sat_wifi_enabled / sat_wifi_disabled (own WiFi component state)
+espnow:
+  peers:
+    - ${pc_button_desk_mac}
+  on_receive:
+    - lambda: |-
+        id(send_failures) = 0;      // hearing anything means the link is alive
+    - if:
+        condition:
+          lambda: 'return size == 4 && memcmp(data, "held", 4) == 0;'
+        then:
+          - switch.turn_on: pwr_relay
+          - script.execute: relay_watchdog   # mode restart re-arms per frame
+    - if:
+        condition:
+          lambda: 'return size == 7 && memcmp(data, "wifi_on", 7) == 0;'
+        then:
+          - lambda: 'id(wifi_by_rescue) = false;'   # asked for: never switched off by itself
+          - if:                     # the desk unit repeats a command until it hears the state
+              condition:
+                lambda: 'return id(boot_wifi_enabled);'
+              then:
+                - script.execute: report_wifi_state
+              else:
+                - logger.log: "CMD wifi_on -> saving and rebooting"
+                - lambda: 'id(boot_wifi_enabled) = true;'
+                - delay: 200ms
+                - button.press: reboot_btn
+    - if:
+        condition:
+          lambda: 'return size == 8 && memcmp(data, "wifi_off", 8) == 0;'
+        then:
+          - lambda: 'id(wifi_by_rescue) = false;'
+          - if:
+              condition:
+                lambda: 'return !id(boot_wifi_enabled);'
+              then:
+                - script.execute: report_wifi_state
+              else:
+                - logger.log: "CMD wifi_off -> saving and rebooting"
+                - lambda: 'id(boot_wifi_enabled) = false;'
+                - delay: 200ms
+                - button.press: reboot_btn
+
+script:
+  - id: relay_watchdog              # no fresh held → open
+    mode: restart
+    then:
+      - delay: 300ms
+      - switch.turn_off: pwr_relay
+
+  - id: report_wifi_state
+    mode: restart
+    then:
+      - espnow.send:
+          address: ${pc_button_desk_mac}
+          data: !lambda |-
+            std::string s = wifi::global_wifi_component->is_disabled()
+                            ? "sat_wifi_disabled" : "sat_wifi_enabled";
+            return std::vector<uint8_t>(s.begin(), s.end());
+          on_sent:
+            - lambda: 'id(send_failures) = 0;'
+            - script.execute: rescue_return_check
+          on_error:
+            - lambda: |-
+                if (id(boot_wifi_enabled)) return;   // rescue only applies when WiFi is off
+                id(send_failures) += 1;
+                ESP_LOGW("sat", "send failed, consecutive failures: %d/%d",
+                         id(send_failures), id(fail_threshold));
+            - script.execute: rescue_check
+
+  - id: rescue_check                # link lost for too long → come back on WiFi
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(boot_wifi_enabled) && id(send_failures) >= id(fail_threshold);
+          then:
+            - logger.log: "RESCUE: link lost, enabling wifi and rebooting"
+            - lambda: |-
+                id(boot_wifi_enabled) = true;
+                id(wifi_by_rescue) = true;
+            - delay: 200ms
+            - button.press: reboot_btn
+
+  - id: wifi_connect_watchdog       # WiFi it cannot reach → back to WiFi off
+    then:
+      - delay: 5min
+      - if:
+          condition:
+            lambda: |-   # without a saved channel there is nothing to fall back to
+              return !wifi::global_wifi_component->is_connected() && id(espnow_channel) != 0;
+          then:
+            - logger.log: "wifi: not connected after 5 min, back to wifi off and rebooting"
+            - lambda: |-
+                id(boot_wifi_enabled) = false;
+                id(wifi_by_rescue) = false;
+            - delay: 200ms
+            - button.press: reboot_btn
+
+  - id: rescue_return_check         # link back on WiFi after a rescue → WiFi off again
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(boot_wifi_enabled) || !id(wifi_by_rescue)) return false;
+              if (!wifi::global_wifi_component->is_connected()) return false;
+              id(rescue_reports) += 1;
+              ESP_LOGI("sat", "rescue: report delivered on wifi %d/%d",
+                       id(rescue_reports), id(rescue_return));
+              return id(rescue_reports) >= id(rescue_return);
+          then:
+            - logger.log: "rescue over: link back, switching wifi off and rebooting"
+            - lambda: |-
+                id(boot_wifi_enabled) = false;
+                id(wifi_by_rescue) = false;
+            - delay: 200ms
+            - button.press: reboot_btn
+
+switch:
+  - platform: gpio
+    pin: GPIO5                      # D2 — relay IN
+    id: pwr_relay
+    internal: true
+    restore_mode: ALWAYS_OFF
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO6                 # D3 — divider sense
+      mode: INPUT_PULLDOWN
+    id: pc_power
+    internal: true
+    on_press:
+      - espnow.send:
+          address: ${pc_button_desk_mac}
+          data: "on"
+    on_release:
+      - espnow.send:
+          address: ${pc_button_desk_mac}
+          data: "off"
+
+interval:
+  - interval: 1s                    # PC power state refresh (level, not edge)
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: pc_power
+          then:
+            - espnow.send:
+                address: ${pc_button_desk_mac}
+                data: "on"
+
+  - interval: 30s                   # WiFi state heartbeat and failure detector
+    then:
+      - script.execute: report_wifi_state
+
+logger:
