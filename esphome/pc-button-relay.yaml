@@ -1,4 +1,4 @@
-# remote-pc-power-button v2.0.3: pc-button-relay. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.4: pc-button-relay. See the README for the secrets and the MACs to fill in.
 
 # Board: Arduino Nano ESP32, inside the PC; remote I/O of pc-button-desk
 # Actuator: relay on PWR_SW header | Sensor: PSU 5V divider
@@ -16,8 +16,8 @@
 # by itself; WiFi switched on by wifi_on stays on until wifi_off, unless it has
 # not connected wifi_connect_timeout after boot: then the unit returns to WiFi off.
 #
-# No common/wifi.yaml: its fallback AP and captive portal would contradict
-# WiFi being off by default, so this unit keeps its own wifi block.
+# No fallback access point and no captive portal: they would contradict WiFi
+# being off by default.
 
 substitutions:
   name: pc-button-relay
@@ -29,11 +29,12 @@ substitutions:
   rescue_failures: "10"        # failed reports in a row, with WiFi off, before the rescue: 5 min at report_interval
   rescue_return_reports: "3"   # reports delivered on WiFi after a rescue before WiFi goes off again
   wifi_connect_timeout: 5min   # WiFi that has not connected this long after boot falls back to off
+  sense_debounce: 100ms        # the PC power sense must hold its new level this long to count
 
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.3
+    version: v2.0.4
   name: ${name}
   friendly_name: PC Button Relay
   on_boot:
@@ -109,6 +110,10 @@ api:                                # kept for OTA/logs only — no entities
 ota:
   - platform: esphome
     encryption:                     # inherits the api key
+
+safe_mode:                          # after repeated failed boots: WiFi on, so an OTA update can recover it
+  on_safe_mode:
+    - wifi.enable:
 
 wifi:
   ssid: !secret wifi_ssid
@@ -263,6 +268,9 @@ binary_sensor:
       mode: INPUT_PULLDOWN
     id: pc_power
     internal: true
+    filters:                        # no frame bursts while the PSU rail settles
+      - delayed_on: ${sense_debounce}
+      - delayed_off: ${sense_debounce}
     on_press:
       - espnow.send:
           address: ${pc_button_desk_mac}

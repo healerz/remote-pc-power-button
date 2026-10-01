@@ -1,8 +1,13 @@
-# remote-pc-power-button v2.0.3: pc-button-desk. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.4: pc-button-desk. See the README for the secrets and the MACs to fill in.
 
 # Desk unit: the physical power button and status LED, on WiFi and in Home
 # Assistant. Talks to pc-button-relay inside the PC over ESP-NOW.
 # Board: Arduino Nano ESP32.
+#
+# No fallback access point: it would open on a channel of its
+# own when the router is away, and take the radio off the ESP-NOW channel the
+# relay unit uses; the button would stop working exactly when it should not
+# depend on the router. Recovery is over USB, next to the desk.
 
 substitutions:
   name: pc-button-desk
@@ -17,7 +22,7 @@ substitutions:
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.3
+    version: v2.0.4
   name: ${name}
   friendly_name: PC Button Desk
   on_boot:
@@ -40,6 +45,11 @@ globals:
     restore_value: false
     initial_value: '0'
 
+  - id: sat_wifi_known            # relay unit WiFi as last reported: -1 unknown, 0 off, 1 on
+    type: int
+    restore_value: false
+    initial_value: '-1'
+
 logger:
   logs:
     script: INFO                    # the two watchdogs re-arm every second
@@ -47,18 +57,19 @@ logger:
 api:
   encryption:
     key: !secret pc_button_desk_api_key
+  reboot_timeout: 0s                # the button works without Home Assistant: no reboot when it is away
 
 ota:
   - platform: esphome
     encryption:                     # inherits the api key
 
+safe_mode:                          # after repeated failed boots, wait for an OTA update
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  ap:
-    ssid: ${name}-fallback
-    password: !secret ap_password
   power_save_mode: none
+  reboot_timeout: 0s                # nor when the router is away
 
 # ── ESP-NOW link to the relay unit ─────────────────────────────
 # → down / held / up / wifi_on / wifi_off
@@ -96,6 +107,9 @@ espnow:
         then:
           - lambda: |-
               id(sat_wifi_sw).publish_state(true);
+              if (id(sat_wifi_known) == 0 && id(wifi_request) != 1)   // a rescue
+                ESP_LOGW("sat", "relay unit switched its WiFi on by itself");
+              id(sat_wifi_known) = 1;
               if (id(wifi_request) == 1) id(wifi_request) = 0;   // confirmed
     - if:
         condition:
@@ -103,6 +117,9 @@ espnow:
         then:
           - lambda: |-
               id(sat_wifi_sw).publish_state(false);
+              if (id(sat_wifi_known) == 1 && id(wifi_request) != 2)   // back after a rescue, or a fallback
+                ESP_LOGW("sat", "relay unit switched its WiFi off by itself");
+              id(sat_wifi_known) = 0;
               if (id(wifi_request) == 2) id(wifi_request) = 0;   // confirmed
 
 script:
@@ -212,7 +229,3 @@ light:
     output: led_out
     internal: true
     id: status_led
-
-captive_portal:
-
-safe_mode:

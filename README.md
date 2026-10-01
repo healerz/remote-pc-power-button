@@ -2,7 +2,7 @@
 [![Firmware: ESPHome](https://img.shields.io/badge/Firmware-ESPHome-000000.svg)](https://esphome.io/)
 [![Works with: Home Assistant](https://img.shields.io/badge/Works_with-Home_Assistant-41BDF5.svg)](https://www.home-assistant.io/)
 [![3D Print: Ready](https://img.shields.io/badge/3D_Print-Ready-brightgreen.svg)](#printing)
-[![Release: v2.0.3](https://img.shields.io/badge/Release-v2.0.3-blue.svg)](../../releases)
+[![Release: v2.0.4](https://img.shields.io/badge/Release-v2.0.4-blue.svg)](../../releases)
 
 # Remote PC Power Button
 
@@ -368,11 +368,11 @@ flowchart LR
 
 ### Flashing
 
-The configurations are in [`esphome/`](esphome/), one standalone file per unit, for the [ESPHome](https://esphome.io/) dashboard, the Home Assistant add-on or the command line.
+The configurations are in [`esphome/`](esphome/), one standalone file per unit, for the [ESPHome](https://esphome.io/) dashboard, the Home Assistant add-on or the command line. They need ESPHome 2026.9.0 or newer, and Home Assistant: its Satellite WiFi switch is the only way to switch the relay unit's WiFi off after the first flash, and on for updates.
 
-1. **Secrets:** copy [`esphome/secrets.example.yaml`](esphome/secrets.example.yaml) to `secrets.yaml` next to the configurations and fill in your WiFi and a fallback hotspot password. Give each unit its own API encryption key, for example from `openssl rand -base64 32`.
+1. **Secrets:** copy [`esphome/secrets.example.yaml`](esphome/secrets.example.yaml) to `secrets.yaml` next to the configurations and fill in your WiFi. Give each unit its own API encryption key, for example from `openssl rand -base64 32`.
 2. **First flash, over USB:** flash both units once. Each one logs its MAC address at boot (`Local MAC` in the WiFi section of the log).
-3. **MACs:** each unit sends to the other one's MAC. Put both MACs into the `substitutions` at the top of **both** configurations (`pc_button_desk_mac`, `pc_button_relay_mac`).
+3. **MACs:** each unit sends to the other one's MAC. Put the relay unit's MAC into the desk unit's configuration (`pc_button_relay_mac` in its `substitutions`), and the desk unit's MAC into the relay unit's (`pc_button_desk_mac`).
 4. **Second flash:** the relay unit first, then the desk unit. Both units have to run the same release: the desk unit repeats its WiFi commands, which an older relay unit would answer by rebooting over and over.
 5. **Home Assistant:** add the desk unit through the ESPHome integration, with its API key. The relay unit has no entities and needs no integration.
 6. **WiFi off:** a newly flashed relay unit starts with WiFi on, so it can learn the channel. Once it has joined your WiFi, switch Satellite WiFi off in Home Assistant.
@@ -392,6 +392,8 @@ The configurations are in [`esphome/`](esphome/), one standalone file per unit, 
 - Both units must be flashed together, relay unit first: the desk unit's repeated WiFi commands would keep an older relay unit rebooting.
 - WiFi reception inside a PC case can be too weak for the relay unit to hold a connection, so an OTA update may need the case opened or several attempts; the button itself does not depend on WiFi.
 - While the relay unit is on WiFi, the ESP-NOW link is less reliable: WiFi scans take the shared radio off the channel.
+- ESP-NOW frames are not authenticated: the units only accept frames from each other's MAC address, which a sender in radio range could imitate.
+- Recovering the desk unit from a broken configuration needs USB, since it has no fallback access point.
 
 ## Previews
 
