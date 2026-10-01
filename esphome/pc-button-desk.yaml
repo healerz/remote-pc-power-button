@@ -1,4 +1,4 @@
-# remote-pc-power-button v2.0.2: pc-button-desk. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.3: pc-button-desk. See the README for the secrets and the MACs to fill in.
 
 # Desk unit: the physical power button and status LED, on WiFi and in Home
 # Assistant. Talks to pc-button-relay inside the PC over ESP-NOW.
@@ -8,11 +8,16 @@ substitutions:
   name: pc-button-desk
   project: remote-pc-power-button
   pc_button_relay_mac: "02:00:00:00:00:22"  # MAC of that unit, from its boot log (see the README)
+  held_interval: 50ms # desk unit repeats held this often while the button is pressed
+  led_timeout: 4s # desk unit takes the PC as off after this long without on
+  link_timeout: 90s # desk unit takes the link as lost after this long without any frame
+  wifi_request_interval: 1s    # a WiFi request is repeated this often until the relay unit reports it
+  wifi_request_limit: "300"    # requests before giving up: 5 min at one per second
 
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.2
+    version: v2.0.3
   name: ${name}
   friendly_name: PC Button Desk
   on_boot:
@@ -119,22 +124,22 @@ script:
             - espnow.send:
                 address: ${pc_button_relay_mac}
                 data: held
-            - delay: 50ms
+            - delay: ${held_interval}
 
   - id: led_state_watchdog          # silence from relay unit → assume PC off
     mode: restart
     then:
-      - delay: 4s
+      - delay: ${led_timeout}
       - light.turn_off: status_led
       - binary_sensor.template.publish:
           id: pc_power_remote
           state: OFF
 
-  - id: link_watchdog               # no frames in 90s → link down
+  - id: link_watchdog               # no frames in link_timeout → link down
     mode: restart
     then:
-      - delay: 90s
-      - logger.log: "no frames from satellite for 90s"
+      - delay: ${link_timeout}
+      - logger.log: "no frames from satellite for ${link_timeout}"
       - lambda: 'id(sat_link).publish_state(false);'
 
 binary_sensor:
@@ -183,14 +188,14 @@ switch:
       - script.execute: send_wifi_request
 
 interval:
-  - interval: 1s                  # repeat a WiFi request until the relay unit reports it
+  - interval: ${wifi_request_interval}  # repeat a WiFi request until the relay unit reports it
     then:
       - if:
           condition:
             lambda: |-
               if (id(wifi_request) == 0) return false;
-              if (++id(wifi_request_sends) <= 300) return true;   // 5 min
-              ESP_LOGW("sat", "relay unit did not report the requested wifi state in 5 min, giving up");
+              if (++id(wifi_request_sends) <= ${wifi_request_limit}) return true;
+              ESP_LOGW("sat", "relay unit did not report the requested wifi state after ${wifi_request_limit} requests, giving up");
               id(wifi_request) = 0;
               return false;
           then:
