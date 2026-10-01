@@ -1,4 +1,4 @@
-# remote-pc-power-button v2.0.1: pc-button-relay. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.2: pc-button-relay. See the README for the secrets and the MACs to fill in.
 
 # Board: Arduino Nano ESP32, inside the PC; remote I/O of pc-button-desk
 # Actuator: relay on PWR_SW header | Sensor: PSU 5V divider
@@ -27,7 +27,7 @@ substitutions:
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.1
+    version: v2.0.2
   name: ${name}
   friendly_name: PC Button Relay
   on_boot:

@@ -2,7 +2,7 @@
 [![Firmware: ESPHome](https://img.shields.io/badge/Firmware-ESPHome-000000.svg)](https://esphome.io/)
 [![Works with: Home Assistant](https://img.shields.io/badge/Works_with-Home_Assistant-41BDF5.svg)](https://www.home-assistant.io/)
 [![3D Print: Ready](https://img.shields.io/badge/3D_Print-Ready-brightgreen.svg)](#printing)
-[![Release: v2.0.1](https://img.shields.io/badge/Release-v2.0.1-blue.svg)](../../releases)
+[![Release: v2.0.2](https://img.shields.io/badge/Release-v2.0.2-blue.svg)](../../releases)
 
 # Remote PC Power Button
 
@@ -157,6 +157,9 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|---|
 | `pc-button-desk` case | [3mf](models/pc-button-desk-case.3mf), [stl](models/pc-button-desk-case.stl) | Bambu Lab X1 Carbon 0.4 nozzle | ESP_desk - 0.16mm High Quality @BBL X1C | Bambu PETG HF @BBL X1C | 0.16 mm | 20% | 4 | none |
 | `pc-button-relay` case | [3mf](models/pc-button-relay-case.3mf), [stl](models/pc-button-relay-case.stl) | Bambu Lab X1 Carbon 0.4 nozzle | ESP_desk - 0.16mm High Quality @BBL X1C | Bambu PETG HF @BBL X1C | 0.16 mm | 20% | 4 | none |
+| all: pc-remote-power-button-cases | [3mf](models/pc-remote-power-button-cases.3mf) | Bambu Lab X1 Carbon 0.4 nozzle | ESP_desk - 0.16mm High Quality @BBL X1C | Bambu PETG HF @BBL X1C | 0.16 mm | 20% | 4 | none |
+
+Both cases are sized for the Nano ESP32 with headers, so all pins stay reachable for jumper wires. A Nano without headers fits as well; the case is then a bit bigger than needed.
 
 Print both cases lying flat, in PETG. A case printed standing on its end broke under finger pressure: every wall then consists of layer boundaries.
 

@@ -1,4 +1,4 @@
-# remote-pc-power-button v2.0.1: pc-button-desk. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.2: pc-button-desk. See the README for the secrets and the MACs to fill in.
 
 # Desk unit: the physical power button and status LED, on WiFi and in Home
 # Assistant. Talks to pc-button-relay inside the PC over ESP-NOW.
@@ -12,7 +12,7 @@ substitutions:
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.1
+    version: v2.0.2
   name: ${name}
   friendly_name: PC Button Desk
   on_boot:
