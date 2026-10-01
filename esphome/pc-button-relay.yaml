@@ -1,4 +1,4 @@
-# remote-pc-power-button v2.0.2: pc-button-relay. See the README for the secrets and the MACs to fill in.
+# remote-pc-power-button v2.0.3: pc-button-relay. See the README for the secrets and the MACs to fill in.
 
 # Board: Arduino Nano ESP32, inside the PC; remote I/O of pc-button-desk
 # Actuator: relay on PWR_SW header | Sensor: PSU 5V divider
@@ -6,15 +6,15 @@
 #
 # WiFi is off by default so the radio never leaves the AP's channel to scan.
 # Turn it on via the desk unit's "Satellite WiFi" switch when OTA is needed.
-# Rescue: 10 consecutive failed reports (~5 min) while WiFi is off → enable WiFi and reboot.
+# Rescue: rescue_failures consecutive failed reports while WiFi is off → enable WiFi and reboot.
 # ESP-NOW with WiFi off uses the channel of the last WiFi session, saved on
 # connect. Until a channel has been saved (a new board), it always starts with
 # WiFi on: without a known channel ESP-NOW cannot work, so there is no guessing.
 # A router channel change heals itself: the rescue brings WiFi back on the new
-# channel, and after 3 reports delivered on WiFi the unit switches WiFi off
+# channel, and after rescue_return_reports reports delivered on WiFi the unit switches WiFi off
 # again and carries the saved channel over to ESP-NOW. Only a rescue returns
 # by itself; WiFi switched on by wifi_on stays on until wifi_off, unless it has
-# not connected 5 min after boot: then the unit returns to WiFi off.
+# not connected wifi_connect_timeout after boot: then the unit returns to WiFi off.
 #
 # No common/wifi.yaml: its fallback AP and captive portal would contradict
 # WiFi being off by default, so this unit keeps its own wifi block.
@@ -23,11 +23,17 @@ substitutions:
   name: pc-button-relay
   project: remote-pc-power-button
   pc_button_desk_mac: "02:00:00:00:00:21"  # MAC of that unit, from its boot log (see the README)
+  held_timeout: 300ms # relay unit opens the relay this long after the last held
+  state_interval: 1s # relay unit repeats on this often while the PC is on
+  report_interval: 30s # relay unit reports its WiFi state this often
+  rescue_failures: "10"        # failed reports in a row, with WiFi off, before the rescue: 5 min at report_interval
+  rescue_return_reports: "3"   # reports delivered on WiFi after a rescue before WiFi goes off again
+  wifi_connect_timeout: 5min   # WiFi that has not connected this long after boot falls back to off
 
 esphome:
   project:
     name: ${project}.${name}
-    version: v2.0.2
+    version: v2.0.3
   name: ${name}
   friendly_name: PC Button Relay
   on_boot:
@@ -82,17 +88,17 @@ globals:
   - id: rescue_return               # reports it takes to switch WiFi off again
     type: int
     restore_value: false
-    initial_value: '3'
+    initial_value: '${rescue_return_reports}'
 
   - id: send_failures               # consecutive failed reports
     type: int
     restore_value: false
     initial_value: '0'
 
-  - id: fail_threshold              # 10 reports at 30s = ~5 min
+  - id: fail_threshold              # rescue_failures reports at report_interval
     type: int
     restore_value: false
-    initial_value: '10'
+    initial_value: '${rescue_failures}'
 
 api:                                # kept for OTA/logs only — no entities
   encryption:
@@ -172,7 +178,7 @@ script:
   - id: relay_watchdog              # no fresh held → open
     mode: restart
     then:
-      - delay: 300ms
+      - delay: ${held_timeout}
       - switch.turn_off: pwr_relay
 
   - id: report_wifi_state
@@ -211,13 +217,13 @@ script:
 
   - id: wifi_connect_watchdog       # WiFi it cannot reach → back to WiFi off
     then:
-      - delay: 5min
+      - delay: ${wifi_connect_timeout}
       - if:
           condition:
             lambda: |-   # without a saved channel there is nothing to fall back to
               return !wifi::global_wifi_component->is_connected() && id(espnow_channel) != 0;
           then:
-            - logger.log: "wifi: not connected after 5 min, back to wifi off and rebooting"
+            - logger.log: "wifi: not connected after ${wifi_connect_timeout}, back to wifi off and rebooting"
             - lambda: |-
                 id(boot_wifi_enabled) = false;
                 id(wifi_by_rescue) = false;
@@ -267,7 +273,7 @@ binary_sensor:
           data: "off"
 
 interval:
-  - interval: 1s                    # PC power state refresh (level, not edge)
+  - interval: ${state_interval}       # PC power state refresh (level, not edge)
     then:
       - if:
           condition:
@@ -277,7 +283,7 @@ interval:
                 address: ${pc_button_desk_mac}
                 data: "on"
 
-  - interval: 30s                   # WiFi state heartbeat and failure detector
+  - interval: ${report_interval}      # WiFi state heartbeat and failure detector
     then:
       - script.execute: report_wifi_state
 

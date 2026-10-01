@@ -2,7 +2,7 @@
 [![Firmware: ESPHome](https://img.shields.io/badge/Firmware-ESPHome-000000.svg)](https://esphome.io/)
 [![Works with: Home Assistant](https://img.shields.io/badge/Works_with-Home_Assistant-41BDF5.svg)](https://www.home-assistant.io/)
 [![3D Print: Ready](https://img.shields.io/badge/3D_Print-Ready-brightgreen.svg)](#printing)
-[![Release: v2.0.2](https://img.shields.io/badge/Release-v2.0.2-blue.svg)](../../releases)
+[![Release: v2.0.3](https://img.shields.io/badge/Release-v2.0.3-blue.svg)](../../releases)
 
 # Remote PC Power Button
 
@@ -100,7 +100,7 @@ sequenceDiagram
 ```
 
 - **The press is repeated, not sent once.** While the button is held, the desk unit sends `held` every 50 ms; the relay unit keeps the relay closed while these arrive and opens it 300 ms after the last one. A lost frame changes nothing, and the relay can never stick closed: an ATX board forces the PC off after about 4 s of a held power switch.
-- **The PC's state is repeated too.** The relay unit reports `on` every second while the PC is on, so the LED and Home Assistant heal from a lost frame by themselves.
+- **The PC's state is repeated too.** The relay unit reports `on` every 1 s while the PC is on, so the LED and Home Assistant heal from a lost frame by themselves.
 - **The relay unit keeps its WiFi off.** Inside a PC case the WiFi signal is often weak, and a weak WiFi connection keeps scanning for a better access point. WiFi and ESP-NOW share one radio, so every scan takes it off the ESP-NOW channel for seconds: short taps got through, held presses did not. So the relay unit runs on ESP-NOW alone, and switches WiFi on only for updates, through the Satellite WiFi switch in Home Assistant.
 - **It finds its way back by itself.** The relay unit remembers the WiFi channel of its last WiFi session and uses it for ESP-NOW. If the link is lost for about 5 minutes, for example because the router changed its channel, it switches WiFi on, learns the new channel, and returns to ESP-NOW on its own. No channel is configured anywhere.
 
@@ -385,7 +385,7 @@ The configurations are in [`esphome/`](esphome/), one standalone file per unit, 
   - *PC Power*: whether the PC is on.
   - *Satellite Link*: whether the desk unit hears the relay unit.
   - *Satellite WiFi*: the relay unit's WiFi. Switch it on to update the relay unit over the air, and off afterwards. The switch shows the relay unit's own report, not just the command.
-- **Updating the relay unit:** switch Satellite WiFi on, wait until the relay unit is online, flash it, and switch Satellite WiFi off again. WiFi that cannot connect within 5 minutes switches itself off again.
+- **Updating the relay unit:** switch Satellite WiFi on, wait until the relay unit is online, flash it, and switch Satellite WiFi off again. WiFi that cannot connect within 5 min switches itself off again.
 
 ## Known issues
 
